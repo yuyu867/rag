@@ -1,7 +1,7 @@
-import os
-import base64
 from langchain_core.tools import tool
 from openai import OpenAI
+
+import config
 from knowledge.vector_store import KnowledgeBase
 
 
@@ -30,7 +30,7 @@ def calculate_bmi(weight_kg: float, height_m: float) -> str:
 def retrieve_knowledge(query: str) -> str:
     """从营养知识库中检索与query语义相关的营养学知识。query=自然语言查询。"""
     kb = KnowledgeBase.get_instance()
-    results = kb.search(query, k=3)
+    results = kb.search(query, k=config.RETRIEVE_TOP_K)
     if not results:
         return "未找到相关知识。"
     return "\n".join(f"- {r}" for r in results)
@@ -39,12 +39,9 @@ def retrieve_knowledge(query: str) -> str:
 @tool
 def analyze_food_image(image_base64: str) -> str:
     """分析食物图片，识别菜品并估算营养成分。image_base64=图片的base64编码字符串。"""
-    client = OpenAI(
-        api_key=os.getenv("OPENAI_API_KEY"),
-        base_url="https://ws-dhhwq9r77kravo0p.cn-beijing.maas.aliyuncs.com/compatible-mode/v1",
-    )
+    client = OpenAI(api_key=config.VISION_API_KEY, base_url=config.VISION_BASE_URL)
     response = client.chat.completions.create(
-        model="qwen3.7-plus",
+        model=config.VISION_MODEL,
         messages=[{
             "role": "user",
             "content": [
@@ -58,6 +55,6 @@ def analyze_food_image(image_base64: str) -> str:
                 },
             ],
         }],
-        max_tokens=8000,
+        max_tokens=config.VISION_MAX_TOKENS,
     )
     return response.choices[0].message.content or "无法分析该图片。"

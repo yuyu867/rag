@@ -1,0 +1,63 @@
+# AI 智能营养师 — 一键部署（PostgreSQL + 后端 + 前端/nginx）
+#
+# 使用前在项目根目录创建 .env（会被自动读取，且已被 .gitignore 忽略）：
+#   OPENAI_API_KEY=你的百炼Key
+#   POSTGRES_PASSWORD=数据库密码
+#   JWT_SECRET=一段随机长字符串
+#   # 可选：
+#   # CORS_ORIGINS=https://your-domain.com
+#   # FRONTEND_PORT=8080
+#   # CHAT_RATE_LIMIT=10
+#
+# 启动：  docker compose up -d --build
+# 访问：  http://localhost:8080   （默认账户 admin/admin，登录后请立即修改密码）
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?请在根目录 .env 中设置 POSTGRES_PASSWORD}
+      POSTGRES_DB: rag_nutrition
+    volumes:
+      - pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U postgres -d rag_nutrition']
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  backend:
+    build: ./backend
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql+asyncpg://postgres:${POSTGRES_PASSWORD}@db:5432/rag_nutrition
+      JWT_SECRET: ${JWT_SECRET:?请在根目录 .env 中设置 JWT_SECRET}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:?请在根目录 .env 中设置 OPENAI_API_KEY}
+      LLM_MODEL: ${LLM_MODEL:-qwen3.7-plus}
+      CHROMA_PERSIST_DIR: /data/chroma_db
+      CHECKPOINT_DB_PATH: /data/checkpoints.db
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000,http://localhost:8080}
+      CHAT_RATE_LIMIT: ${CHAT_RATE_LIMIT:-10}
+      # LangSmith 追踪（可选）
+      LANGSMITH_TRACING: ${LANGSMITH_TRACING:-}
+      LANGSMITH_API_KEY: ${LANGSMITH_API_KEY:-}
+      LANGSMITH_PROJECT: ${LANGSMITH_PROJECT:-rag_project}
+    volumes:
+      - app_data:/data
+    depends_on:
+      db:
+        condition: service_healthy
+
+  frontend:
+    build: ./frontend
+    restart: unless-stopped
+    ports:
+      - '${FRONTEND_PORT:-8080}:80'
+    depends_on:
+      - backend
+
+volumes:
+  pg_data:
+  app_data:

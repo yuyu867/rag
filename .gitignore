@@ -13,6 +13,10 @@ dist/
 # 环境变量（绝不能提交真实密钥）
 .env
 
+# 对话记忆持久化（sqlite，含用户对话内容）
+checkpoints.db
+*.checkpoints.db
+
 # IDE
 .idea/
 .vscode/
@@ -24,3 +28,4 @@ dist/
 
 # 本地笔记（非项目代码）
 项目介绍与面试准备.md
+项目经历-简历版.md

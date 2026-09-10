@@ -1,8 +1,12 @@
-import os
 import re
-import json
+
+from langgraph.checkpoint.memory import MemorySaver
+from langgraph.config import get_stream_writer
 from langgraph.graph import StateGraph, END
+from langchain_core.messages import AIMessage
 from openai import OpenAI
+
+import config
 from agent.state import AgentState
 from agent.tools import calculate_bmi, retrieve_knowledge, analyze_food_image
 
@@ -18,18 +22,14 @@ SYSTEM_PROMPT = """你是一位专业的AI营养师，名字叫"小营"。请用
 
 
 def get_llm_client() -> OpenAI:
-    return OpenAI(
-        api_key=os.getenv("DASHSCOPE_API_KEY"),
-        base_url="https://dashscope.aliyuncs.com/compatible-mode/v1",
-    )
+    return OpenAI(api_key=config.LLM_API_KEY, base_url=config.LLM_BASE_URL)
 
 
-# 正则从文本中提取身高体重的常见表达
 def _extract_bmi_params(text: str) -> tuple[float, float]:
     """从用户输入中用正则提取体重(kg)和身高(m)，无需LLM。"""
     weight, height = 0.0, 0.0
 
-    # 体重: "80kg" "80公斤" "80千克" "体重80"
+    # 体重: "80kg" "80公斤" "80千克" "80斤"
     w_match = re.search(r'(\d+(?:\.\d+)?)\s*(?:kg|公斤|千克|斤)', text)
     if w_match:
         w = float(w_match.group(1))
@@ -60,13 +60,17 @@ def _extract_bmi_params(text: str) -> tuple[float, float]:
 def prepare(state: AgentState) -> dict:
     """准备上下文：正则提取BMI参数 + 检索知识库 + 分析图片（均不需要LLM分类）。"""
     user_input = state["user_input"]
-    result = {}
+    result = {
+        # 每轮重置，避免上一轮的结果残留到本轮
+        "bmi_result": None,
+        "knowledge_results": [],
+        "food_analysis": None,
+    }
 
     # 1. 正则提取身高体重，直接算BMI（纯本地，毫秒级）
     weight, height = _extract_bmi_params(user_input)
     if weight > 0 and height > 0:
-        bmi_str = calculate_bmi.invoke({"weight_kg": weight, "height_m": height})
-        result["bmi_result"] = bmi_str
+        result["bmi_result"] = calculate_bmi.invoke({"weight_kg": weight, "height_m": height})
 
     # 2. 检索知识库（ChromaDB embedding API，通常 < 1秒）
     try:
@@ -75,47 +79,72 @@ def prepare(state: AgentState) -> dict:
     except Exception:
         result["knowledge_results"] = []
 
-    # 3. 食物图片分析（qwen-vl-plus，仅当有图片时调用）
+    # 3. 食物图片分析（仅当有图片时调用）
     image = state.get("image_base64")
     if image:
         try:
-            food_result = analyze_food_image.invoke({"image_base64": image})
-            result["food_analysis"] = food_result
+            result["food_analysis"] = analyze_food_image.invoke({"image_base64": image})
         except Exception:
             result["food_analysis"] = None
 
     return result
 
 
-def generate_response(state: AgentState) -> dict:
-    """唯一一次 LLM 调用：综合所有上下文，生成最终回复。"""
-    context_parts = []
+def _build_context(state: AgentState) -> str:
+    """把工具结果拼成给 LLM 的参考资料。"""
+    parts = []
     if state.get("bmi_result"):
-        context_parts.append(f"[BMI计算结果]\n{state['bmi_result']}")
+        parts.append(f"[BMI计算结果]\n{state['bmi_result']}")
     if state.get("knowledge_results"):
-        context_parts.append(f"[知识库检索结果]\n" + "\n".join(str(r) for r in state["knowledge_results"]))
+        parts.append("[知识库检索结果]\n" + "\n".join(str(r) for r in state["knowledge_results"]))
     if state.get("food_analysis"):
-        context_parts.append(f"[食物图片分析]\n{state['food_analysis']}")
-    context = "\n\n".join(context_parts) if context_parts else ""
+        parts.append(f"[食物图片分析]\n{state['food_analysis']}")
+    return "\n\n".join(parts)
+
+
+def generate_response(state: AgentState) -> dict:
+    """综合上下文，流式生成最终回复（唯一一次 LLM 调用）。"""
+    writer = get_stream_writer()
+    context = _build_context(state)
+
+    # 历史消息（含本轮用户消息）转 OpenAI 格式
+    history = []
+    for m in state["messages"]:
+        role = "assistant" if getattr(m, "type", "") == "ai" else "user"
+        content = m.content if isinstance(m.content, str) else str(m.content)
+        history.append({"role": role, "content": content})
+
+    # 把参考资料追加到最后一轮用户消息
+    if context:
+        if history and history[-1]["role"] == "user":
+            history[-1]["content"] += (
+                f"\n\n参考资料：\n{context}\n\n请综合以上信息，给出专业、全面的回答。"
+            )
+        else:
+            history.append({"role": "user", "content": f"参考资料：\n{context}"})
+
+    messages = [{"role": "system", "content": SYSTEM_PROMPT}] + history
 
     client = get_llm_client()
-    user_msg = f"用户问题：{state['user_input']}"
-    if context:
-        user_msg += f"\n\n参考资料：\n{context}\n\n请综合以上信息，给出专业、全面的回答。"
-
-    response = client.chat.completions.create(
-        model="qwen-plus",
-        messages=[
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": user_msg},
-        ],
-        max_tokens=10000,
+    stream = client.chat.completions.create(
+        model=config.LLM_MODEL,
+        messages=messages,
+        max_tokens=config.LLM_MAX_TOKENS,
+        stream=True,
     )
-    full_text = response.choices[0].message.content or ""
-    return {"final_response": full_text}
+
+    full_text = ""
+    for chunk in stream:
+        if chunk.choices and chunk.choices[0].delta and chunk.choices[0].delta.content:
+            token = chunk.choices[0].delta.content
+            full_text += token
+            writer(token)  # 逐个 token 流式输出
+
+    return {"messages": [AIMessage(content=full_text)], "final_response": full_text}
 
 
-def create_agent():
+def create_agent(checkpointer=None):
+    """构造 Agent 图。checkpointer 为 None 时退回内存版（MemorySaver）。"""
     graph = StateGraph(AgentState)
     graph.add_node("prepare", prepare)
     graph.add_node("generate", generate_response)
@@ -124,4 +153,6 @@ def create_agent():
     graph.add_edge("prepare", "generate")
     graph.add_edge("generate", END)
 
-    return graph.compile()
+    if checkpointer is None:
+        checkpointer = MemorySaver()
+    return graph.compile(checkpointer=checkpointer)
