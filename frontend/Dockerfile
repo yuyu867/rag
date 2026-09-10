@@ -4,7 +4,8 @@ FROM node:20-alpine AS build
 WORKDIR /app
 
 COPY package*.json ./
-RUN npm install
+# 国内 npm 镜像，海外部署可删掉 config set 这行
+RUN npm config set registry https://registry.npmmirror.com && npm install
 
 COPY . .
 # vue-tsc 类型检查 + vite 构建

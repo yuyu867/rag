@@ -9,8 +9,9 @@ RUN apt-get update \
     && rm -rf /var/lib/apt/lists/*
 
 # 先装依赖再拷代码，充分利用构建缓存
+# 国内服务器构建慢/失败时，可改用阿里云 PyPI 镜像（已默认启用，海外部署可去掉 -i 参数）
 COPY requirements.txt .
-RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir -i https://mirrors.aliyun.com/pypi/simple/ -r requirements.txt
 
 COPY . .
 
