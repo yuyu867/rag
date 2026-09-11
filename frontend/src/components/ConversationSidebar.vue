@@ -17,6 +17,11 @@
       <el-button type="primary" class="new-btn" :loading="creating" @click="createConversation">
         ＋ 新对话
       </el-button>
+      <el-button
+        v-if="authStore.user?.is_admin"
+        class="new-btn admin-btn"
+        @click="emit('open-admin')"
+      >⚙ 管理后台</el-button>
     </div>
 
     <el-scrollbar class="conv-scroll">
@@ -63,6 +68,8 @@ import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'elem
 import { authStore } from '../stores/auth'
 import { conversationStore } from '../stores/conversations'
 import { changePassword } from '../api/auth'
+
+const emit = defineEmits<{ (e: 'open-admin'): void }>()
 
 const creating = ref(false)
 
@@ -204,6 +211,10 @@ function formatTime(iso: string): string {
 }
 .new-btn {
   width: 100%;
+}
+.admin-btn {
+  margin-left: 0;
+  margin-top: 8px;
 }
 .conv-scroll {
   flex: 1;

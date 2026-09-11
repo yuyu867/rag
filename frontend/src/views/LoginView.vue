@@ -50,6 +50,12 @@
             <el-form-item label="用户名" prop="username">
               <el-input v-model="registerForm.username" placeholder="2-50 个字符" size="large" />
             </el-form-item>
+            <el-form-item label="手机号" prop="phone">
+              <el-input v-model="registerForm.phone" placeholder="11 位手机号，用于账号找回" size="large" maxlength="11" />
+            </el-form-item>
+            <el-form-item label="邮箱（可选）" prop="email">
+              <el-input v-model="registerForm.email" placeholder="选填" size="large" />
+            </el-form-item>
             <el-form-item label="密码" prop="password">
               <el-input
                 v-model="registerForm.password"
@@ -100,11 +106,22 @@ const loginRules: FormRules = {
 }
 
 const registerFormRef = ref<FormInstance>()
-const registerForm = reactive({ username: '', password: '', confirm: '' })
+const registerForm = reactive({ username: '', phone: '', email: '', password: '', confirm: '' })
 const registerRules: FormRules = {
   username: [
     { required: true, message: '请输入用户名', trigger: 'blur' },
     { min: 2, max: 50, message: '用户名需 2-50 个字符', trigger: 'blur' },
+  ],
+  phone: [
+    { required: true, message: '请输入手机号', trigger: 'blur' },
+    { pattern: /^1[3-9]\d{9}$/, message: '请输入正确的 11 位手机号', trigger: 'blur' },
+  ],
+  email: [
+    {
+      pattern: /^[\w.+-]+@[\w-]+\.[\w.-]+$/,
+      message: '邮箱格式不正确',
+      trigger: 'blur',
+    },
   ],
   password: [
     { required: true, message: '请输入密码', trigger: 'blur' },
@@ -142,7 +159,12 @@ async function submitRegister() {
   if (!ok) return
   loading.value = true
   try {
-    await authStore.register(registerForm.username.trim(), registerForm.password)
+    await authStore.register(
+      registerForm.username.trim(),
+      registerForm.password,
+      registerForm.phone.trim(),
+      registerForm.email.trim() || undefined,
+    )
     ElMessage.success('注册成功，已自动登录！')
     conversationStore.refresh()
   } catch (e) {

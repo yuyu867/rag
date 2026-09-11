@@ -74,3 +74,10 @@ async def get_current_user(
     if user is None:
         raise HTTPException(status_code=401, detail="用户不存在")
     return user
+
+
+async def get_current_admin(user: User = Depends(get_current_user)) -> User:
+    """FastAPI 依赖：必须是管理员，否则 403。"""
+    if not user.is_admin:
+        raise HTTPException(status_code=403, detail="需要管理员权限")
+    return user

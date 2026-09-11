@@ -1,6 +1,9 @@
 export interface UserInfo {
   id: number
   username: string
+  phone: string | null
+  email: string | null
+  is_admin: boolean
 }
 
 const TOKEN_KEY = 'nutrition_token'
@@ -53,8 +56,35 @@ export async function login(username: string, password: string): Promise<UserInf
   return requestAuth('/api/auth/login', username, password)
 }
 
-export async function register(username: string, password: string): Promise<UserInfo> {
-  return requestAuth('/api/auth/register', username, password)
+export async function register(
+  username: string,
+  password: string,
+  phone: string,
+  email?: string,
+): Promise<UserInfo> {
+  const res = await fetch('/api/auth/register', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ username, password, phone, email: email || null }),
+  })
+  const data = await res.json().catch(() => ({}))
+  if (!res.ok) {
+    throw new Error(data.detail || `请求失败（${res.status}）`)
+  }
+  saveAuth(data.token, data.user)
+  return data.user
+}
+
+/** 从后端刷新当前用户信息（登录态恢复时补齐 is_admin 等字段） */
+export async function fetchMe(): Promise<UserInfo> {
+  const res = await fetch('/api/auth/me', { headers: { ...authHeaders() } })
+  if (!res.ok) {
+    if (res.status === 401) clearAuth()
+    throw new Error(`获取用户信息失败（${res.status}）`)
+  }
+  const data = await res.json()
+  saveAuth(getToken()!, data)
+  return data
 }
 
 export async function changePassword(oldPassword: string, newPassword: string): Promise<void> {

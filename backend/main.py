@@ -12,7 +12,7 @@ from pydantic import BaseModel
 from sse_starlette.sse import EventSourceResponse
 from langchain_core.messages import HumanMessage
 from langgraph.checkpoint.sqlite.aio import AsyncSqliteSaver
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from agent.graph import create_agent
@@ -21,7 +21,7 @@ from auth import hash_password
 from database import Base, SessionLocal, engine, get_db
 from models import Conversation, Message, User
 from rate_limit import CHAT_RATE_LIMIT, rate_limit
-from routers import auth_router, conv_router
+from routers import admin_router, auth_router, conv_router
 
 # 对话记忆持久化文件（sqlite checkpointer，保存 Agent 上下文），服务重启后记忆不丢
 CHECKPOINT_DB = os.getenv("CHECKPOINT_DB_PATH", "./checkpoints.db")
@@ -50,9 +50,22 @@ def _check_image(content: bytes, content_type: str | None) -> None:
 
 
 async def init_db() -> None:
-    """建表（不存在时）+ 确保默认管理员 admin/admin 存在。"""
+    """建表（不存在时）+ 已有库的幂等列迁移 + 确保默认管理员存在且是管理员。"""
     async with engine.begin() as conn:
         await conn.run_sync(Base.metadata.create_all)
+        # 对旧库做增量迁移（新库已含这些列，IF NOT EXISTS 直接跳过）
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone VARCHAR(20)"))
+        await conn.execute(text("ALTER TABLE users ADD COLUMN IF NOT EXISTS email VARCHAR(120)"))
+        await conn.execute(
+            text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
+        )
+        # 手机号唯一（允许多个 NULL，仅约束非空值），幂等
+        await conn.execute(
+            text(
+                "CREATE UNIQUE INDEX IF NOT EXISTS ix_users_phone "
+                "ON users (phone) WHERE phone IS NOT NULL"
+            )
+        )
     async with SessionLocal() as db:
         admin = (
             await db.execute(select(User).where(User.username == DEFAULT_ADMIN_USERNAME))
@@ -61,7 +74,11 @@ async def init_db() -> None:
             db.add(User(
                 username=DEFAULT_ADMIN_USERNAME,
                 password_hash=hash_password(DEFAULT_ADMIN_PASSWORD),
+                is_admin=True,
             ))
+            await db.commit()
+        elif not admin.is_admin:
+            admin.is_admin = True
             await db.commit()
 
 
@@ -84,6 +101,7 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="AI 智能营养师", lifespan=lifespan)
 app.include_router(auth_router)
 app.include_router(conv_router)
+app.include_router(admin_router)
 
 # CORS：从环境变量读取（逗号分隔），默认只放行本地前端开发端口
 CORS_ORIGINS = [
