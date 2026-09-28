@@ -62,16 +62,29 @@ export async function* sendMessage(
     const { done, value } = await reader.read()
     if (done) break
     buffer += decoder.decode(value, { stream: true })
-    const lines = buffer.split('\n')
-    buffer = lines.pop() || ''
-    for (const line of lines) {
-      // 去掉 SSE 的 \r\n 里的 \r
-      const clean = line.endsWith('\r') ? line.slice(0, -1) : line
-      if (clean.startsWith('data: ')) {
-        const data = clean.slice(6)
-        if (data === '[DONE]') return
-        yield data
+    // 统一换行，便于按空行切分事件
+    buffer = buffer.replace(/\r\n/g, '\n')
+
+    // SSE 以「空行」分隔事件；一个事件内可能有多行 data:，按规范需用 \n 拼回。
+    // 若像以前那样把每行 data: 当独立片段直接拼接，token 中的换行符会丢失，
+    // 导致模型输出的 Markdown 表格被压成一行、无法渲染成卡片。
+    let sep: number
+    while ((sep = buffer.indexOf('\n\n')) !== -1) {
+      const rawEvent = buffer.slice(0, sep)
+      buffer = buffer.slice(sep + 2)
+
+      const dataLines: string[] = []
+      for (const line of rawEvent.split('\n')) {
+        if (line.startsWith('data:')) {
+          // 按 SSE 规范去掉 "data:" 后的一个可选空格
+          dataLines.push(line.slice(5).replace(/^ /, ''))
+        }
       }
+      if (!dataLines.length) continue
+
+      const data = dataLines.join('\n')
+      if (data === '[DONE]') return
+      yield data
     }
   }
 }
