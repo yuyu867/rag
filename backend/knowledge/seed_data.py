@@ -83,3 +83,20 @@ EXERCISE_ADVICE = [
 
 for data in [GI_DATA, DISEASE_ADVICE, NUTRITION_BASICS, EXERCISE_ADVICE]:
     NUTRITION_SEEDS.extend(data)
+
+
+def _load_food_seeds() -> list[str]:
+    """把《中国食物成分表》提取出的食物成分数据并入知识库种子。
+
+    数据文件由 `python -m knowledge.build_food_db` 生成；未生成时返回空列表，
+    不影响服务启动（此时知识库只含手写的 GI/慢病/常识/运动建议）。
+    """
+    try:
+        from knowledge.food_db import load_food_seeds
+
+        return load_food_seeds()
+    except Exception:
+        return []
+
+
+NUTRITION_SEEDS.extend(_load_food_seeds())

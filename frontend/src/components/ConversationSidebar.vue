@@ -1,5 +1,11 @@
 <template>
-  <aside class="sidebar">
+  <div
+    v-if="uiStore.sidebarOpen"
+    class="scrim"
+    @click="uiStore.closeSidebar()"
+  ></div>
+
+  <aside class="sidebar" :class="{ open: uiStore.sidebarOpen }">
     <div class="sidebar-header">
       <div class="app-name">🥗 AI 营养师 · 小营</div>
       <div class="user-row">
@@ -20,25 +26,49 @@
       <el-button
         v-if="authStore.user?.is_admin"
         class="new-btn admin-btn"
-        @click="emit('open-admin')"
+        @click="openAdmin"
       >⚙ 管理后台</el-button>
+    </div>
+
+    <div class="search-box">
+      <el-input
+        v-model="keyword"
+        placeholder="搜索会话"
+        clearable
+        size="small"
+        :prefix-icon="Search"
+      />
     </div>
 
     <el-scrollbar class="conv-scroll">
       <div
-        v-for="conv in conversationStore.list"
+        v-for="conv in filteredList"
         :key="conv.id"
         class="conv-item"
         :class="{ active: conv.id === conversationStore.currentId }"
-        @click="conversationStore.select(conv.id)"
+        @click="selectConversation(conv.id)"
       >
-        <div class="conv-title">{{ conv.title }}</div>
+        <div class="conv-title-row">
+          <span v-if="conv.pinned" class="pin-mark" title="已置顶">📌</span>
+          <span class="conv-title">{{ conv.title }}</span>
+        </div>
         <div class="conv-meta">
           <span>{{ formatTime(conv.updated_at) }}</span>
-          <span class="del-btn" title="删除会话" @click.stop="removeConversation(conv.id)">🗑</span>
+          <span class="conv-actions">
+            <span
+              class="icon-btn"
+              :class="{ pinned: conv.pinned }"
+              :title="conv.pinned ? '取消置顶' : '置顶'"
+              @click.stop="togglePin(conv.id)"
+            >📌</span>
+            <span class="icon-btn" title="重命名" @click.stop="openRename(conv)">✏️</span>
+            <span class="icon-btn del" title="删除会话" @click.stop="removeConversation(conv.id)">🗑</span>
+          </span>
         </div>
       </div>
-      <div v-if="!conversationStore.list.length" class="empty-tip">暂无历史会话</div>
+      <div v-if="!filteredList.length" class="empty-tip">
+        {{ keyword ? '没有匹配的会话' : '暂无历史会话' }}
+      </div>
     </el-scrollbar>
 
     <!-- 修改密码对话框 -->
@@ -59,19 +89,43 @@
         <el-button type="primary" :loading="changingPwd" @click="submitChangePassword">确定</el-button>
       </template>
     </el-dialog>
+
+    <!-- 重命名对话框 -->
+    <el-dialog v-model="renameVisible" title="重命名会话" width="360px">
+      <el-input
+        v-model="renameTitle"
+        maxlength="200"
+        placeholder="输入新标题"
+        @keyup.enter="submitRename"
+      />
+      <template #footer>
+        <el-button @click="renameVisible = false">取消</el-button>
+        <el-button type="primary" :loading="renaming" @click="submitRename">确定</el-button>
+      </template>
+    </el-dialog>
   </aside>
 </template>
 
 <script setup lang="ts">
-import { reactive, ref } from 'vue'
+import { computed, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox, type FormInstance, type FormRules } from 'element-plus'
+import { Search } from '@element-plus/icons-vue'
 import { authStore } from '../stores/auth'
 import { conversationStore } from '../stores/conversations'
+import { uiStore } from '../stores/ui'
 import { changePassword } from '../api/auth'
+import type { Conversation } from '../api/conversations'
 
 const emit = defineEmits<{ (e: 'open-admin'): void }>()
 
 const creating = ref(false)
+const keyword = ref('')
+
+const filteredList = computed(() => {
+  const kw = keyword.value.trim().toLowerCase()
+  if (!kw) return conversationStore.list
+  return conversationStore.list.filter((c) => c.title.toLowerCase().includes(kw))
+})
 
 // ---- 修改密码 ----
 const pwdDialogVisible = ref(false)
@@ -119,11 +173,51 @@ async function submitChangePassword() {
   }
 }
 
+// ---- 重命名 ----
+const renameVisible = ref(false)
+const renaming = ref(false)
+const renameId = ref<number | null>(null)
+const renameTitle = ref('')
+
+function openRename(conv: Conversation) {
+  renameId.value = conv.id
+  renameTitle.value = conv.title
+  renameVisible.value = true
+}
+
+async function submitRename() {
+  const title = renameTitle.value.trim()
+  if (!title || renameId.value === null) return
+  renaming.value = true
+  try {
+    await conversationStore.rename(renameId.value, title)
+    ElMessage.success('已重命名')
+    renameVisible.value = false
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '重命名失败')
+  } finally {
+    renaming.value = false
+  }
+}
+
 async function createConversation() {
   creating.value = true
   const conv = await conversationStore.create()
   creating.value = false
   if (!conv) ElMessage.error('创建会话失败')
+}
+
+async function togglePin(id: number) {
+  try {
+    await conversationStore.togglePin(id)
+  } catch (e) {
+    ElMessage.error(e instanceof Error ? e.message : '操作失败')
+  }
+}
+
+function selectConversation(id: number) {
+  conversationStore.select(id)
+  uiStore.closeSidebar() // 移动端选择后收起抽屉
 }
 
 async function removeConversation(id: number) {
@@ -137,6 +231,11 @@ async function removeConversation(id: number) {
     return // 用户取消
   }
   await conversationStore.remove(id)
+}
+
+function openAdmin() {
+  emit('open-admin')
+  uiStore.closeSidebar()
 }
 
 function logout() {
@@ -165,6 +264,9 @@ function formatTime(iso: string): string {
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
+}
+.scrim {
+  display: none;
 }
 .sidebar-header {
   padding: 16px 16px 10px;
@@ -216,6 +318,16 @@ function formatTime(iso: string): string {
   margin-left: 0;
   margin-top: 8px;
 }
+.search-box {
+  padding: 0 12px 8px;
+}
+.search-box :deep(.el-input__wrapper) {
+  background: rgba(255, 255, 255, 0.08);
+  box-shadow: none;
+}
+.search-box :deep(.el-input__inner) {
+  color: #e5ece6;
+}
 .conv-scroll {
   flex: 1;
 }
@@ -231,6 +343,15 @@ function formatTime(iso: string): string {
 .conv-item.active {
   background: #2d4a31;
 }
+.conv-title-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+.pin-mark {
+  flex-shrink: 0;
+  font-size: 12px;
+}
 .conv-title {
   font-size: 13px;
   overflow: hidden;
@@ -240,19 +361,33 @@ function formatTime(iso: string): string {
 .conv-meta {
   display: flex;
   justify-content: space-between;
+  align-items: center;
   margin-top: 4px;
   font-size: 11px;
   color: #7d9481;
 }
-.del-btn {
-  cursor: pointer;
+.conv-actions {
+  display: flex;
+  gap: 8px;
   opacity: 0;
   transition: opacity 0.15s;
 }
-.conv-item:hover .del-btn {
+.conv-item:hover .conv-actions {
   opacity: 1;
 }
-.del-btn:hover {
+.icon-btn {
+  cursor: pointer;
+  font-size: 12px;
+  opacity: 0.7;
+}
+.icon-btn:hover {
+  opacity: 1;
+}
+.icon-btn.pinned {
+  opacity: 1;
+  filter: drop-shadow(0 0 2px #f7d44a);
+}
+.icon-btn.del:hover {
   color: #f56c6c;
 }
 .empty-tip {
@@ -260,5 +395,29 @@ function formatTime(iso: string): string {
   color: #6b7f6e;
   font-size: 12px;
   padding: 24px 0;
+}
+
+/* ===== 移动端：侧边栏变为抽屉 ===== */
+@media (max-width: 768px) {
+  .sidebar {
+    position: fixed;
+    left: 0;
+    top: 0;
+    z-index: 1001;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: none;
+  }
+  .sidebar.open {
+    transform: translateX(0);
+    box-shadow: 4px 0 20px rgba(0, 0, 0, 0.3);
+  }
+  .scrim {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+  }
 }
 </style>

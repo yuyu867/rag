@@ -178,4 +178,14 @@ onMounted(load)
   font-size: 18px;
   font-weight: bold;
 }
+
+@media (max-width: 768px) {
+  .admin-panel {
+    padding: 12px;
+  }
+  .admin-header {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+}
 </style>

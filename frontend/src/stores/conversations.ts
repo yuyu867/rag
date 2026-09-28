@@ -37,6 +37,21 @@ export const conversationStore = reactive({
     this.currentId = id
   },
 
+  async rename(id: number, title: string) {
+    const conv = await api.updateConversation(id, { title })
+    const target = this.list.find((c) => c.id === id)
+    if (target) target.title = conv.title
+    return conv
+  },
+
+  async togglePin(id: number) {
+    const target = this.list.find((c) => c.id === id)
+    if (!target) return
+    const conv = await api.updateConversation(id, { pinned: !target.pinned })
+    await this.refresh()
+    return conv
+  },
+
   async remove(id: number) {
     try {
       await api.deleteConversation(id)

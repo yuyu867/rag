@@ -16,6 +16,8 @@ dist/
 # 对话记忆持久化（sqlite，含用户对话内容）
 checkpoints.db
 *.checkpoints.db
+checkpoints.db-shm
+checkpoints.db-wal
 
 # IDE
 .idea/
@@ -29,3 +31,12 @@ checkpoints.db
 # 本地笔记（非项目代码）
 项目介绍与面试准备.md
 项目经历-简历版.md
+谭振宇-简历-更新版.md
+面试问答手册.md
+# 个人简历源码与证件照（含个人隐私信息，绝不提交）
+谭振宇-简历.html
+_resume_photo_0.png
+
+# PDF OCR 中间产物（临时渲染图 + 逐页原始 JSON，体积大，仅本地）
+_ocr_tmp/
+backend/knowledge/data/food_raw.json

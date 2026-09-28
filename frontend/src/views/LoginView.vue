@@ -208,4 +208,14 @@ async function submitRegister() {
   width: 100%;
   margin-top: 4px;
 }
+
+@media (max-width: 768px) {
+  .login-page {
+    padding: 16px;
+  }
+  .login-card {
+    width: 100%;
+    max-width: 400px;
+  }
+}
 </style>

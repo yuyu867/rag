@@ -127,8 +127,15 @@ def _conv_payload(c: Conversation) -> dict:
         "id": c.id,
         "thread_id": c.thread_id,
         "title": c.title,
+        "pinned": c.pinned,
         "updated_at": c.updated_at.isoformat(),
     }
+
+
+class ConversationUpdate(BaseModel):
+    """可更新的字段均可选：重命名 / 置顶。"""
+    title: str | None = Field(default=None, min_length=1, max_length=200)
+    pinned: bool | None = None
 
 
 @conv_router.get("")
@@ -139,10 +146,29 @@ async def list_conversations(
         await db.execute(
             select(Conversation)
             .where(Conversation.user_id == user.id)
-            .order_by(Conversation.updated_at.desc())
+            .order_by(Conversation.pinned.desc(), Conversation.updated_at.desc())
         )
     ).scalars().all()
     return [_conv_payload(c) for c in rows]
+
+
+@conv_router.patch("/{conversation_id}")
+async def update_conversation(
+    conversation_id: int,
+    body: ConversationUpdate,
+    user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    conv = await db.get(Conversation, conversation_id)
+    if conv is None or conv.user_id != user.id:
+        raise HTTPException(status_code=404, detail="会话不存在")
+    if body.title is not None:
+        conv.title = body.title.strip() or conv.title
+    if body.pinned is not None:
+        conv.pinned = body.pinned
+    await db.commit()
+    await db.refresh(conv)
+    return _conv_payload(conv)
 
 
 @conv_router.post("")

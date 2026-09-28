@@ -6,9 +6,13 @@
 
 - **用户系统**：注册 / 登录（JWT 鉴权，PBKDF2 密码哈希），内置默认管理员 `admin / admin`
 - **会话历史**：左侧会话列表，多会话管理，历史对话持久化在 PostgreSQL，重启后可随时恢复
+- **会话列表增强**：搜索 / 置顶 / 重命名 / 删除会话
 - **BMI 计算**：支持中文表达（`80kg`、`80公斤`、`80斤`、`175cm`、`1米75` 等），按中国标准分档（偏瘦 / 正常 / 超重 / 肥胖）
-- **营养知识检索（RAG）**：内置约 65 条营养知识（食物 GI 值、慢性病饮食建议、营养常识、运动建议），基于 ChromaDB 向量检索
+- **食物成分库（RAG）**：内置营养知识（食物 GI 值、慢性病饮食建议、营养常识、运动建议）+ 数千条《中国食物成分表》食物成分数据（每 100g 能量/蛋白质/脂肪/碳水/维生素/矿物质），基于 ChromaDB 向量检索
+- **营养数据卡片**：回复中的营养表格自动渲染成可视化卡片
 - **食物图片分析**：上传食物图片，视觉模型识别菜品并估算热量与营养成分
+- **语音输入**：支持浏览器语音识别转文字（需 HTTPS 或 localhost）
+- **移动端适配**：响应式布局，手机上侧边栏自动变为抽屉
 - **SSE 流式回复**：后端流式推送，前端逐段渲染
 - **多轮记忆**：LangGraph Checkpointer 持久化 Agent 上下文，同一会话内多轮追问不丢上下文
 
@@ -19,9 +23,9 @@
 | 前端 | Vue3 + Element Plus + TypeScript + Vite + markdown-it |
 | 后端 | Python FastAPI + uvicorn |
 | Agent 框架 | LangGraph（StateGraph） |
-| LLM | 通义千问 qwen-plus（DashScope） |
+| LLM | qwen3.7-plus（阿里云百炼 MaaS） |
 | 视觉模型 | qwen3.7-plus（阿里云百炼） |
-| Embedding | text-embedding-v2（DashScope） |
+| Embedding | text-embedding-v3（阿里云百炼） |
 | 向量数据库 | ChromaDB |
 | 数据库 | PostgreSQL（asyncpg + SQLAlchemy 2.0 async）：用户 / 会话 / 消息 |
 | 鉴权 | JWT（PyJWT）+ PBKDF2 密码哈希 |
@@ -128,6 +132,7 @@ docker compose up -d --build
 | POST | /api/auth/change-password | 修改密码 |
 | GET | /api/conversations | 会话列表 |
 | POST | /api/conversations | 创建会话 |
+| PATCH | /api/conversations/{id} | 重命名 / 置顶会话 |
 | DELETE | /api/conversations/{id} | 删除会话（级联删消息） |
 | GET | /api/conversations/{id}/messages | 会话历史消息 |
 | POST | /api/chat | 对话，SSE 流式回复（需登录） |
@@ -163,6 +168,8 @@ docker compose up -d --build
 - **两层持久化**：用户/会话/聊天记录在 PostgreSQL（展示与恢复）；Agent 多轮上下文在本地 SQLite checkpointer（LangGraph 记忆），高并发场景可换 PostgresSaver
 - 密钥统一通过环境变量配置（见 `backend/.env.example`），**请勿提交 `.env`**
 - 首次启动请用 admin 登录后尽快修改默认密码（或通过 `ADMIN_USERNAME`/`ADMIN_PASSWORD` 环境变量自定义种子账户）
+- **语音输入**依赖浏览器 Web Speech API，仅在 **HTTPS 或 localhost** 下可用（HTTP 服务器上麦克风按钮会自动隐藏）
+- **食物成分库**由 `backend/knowledge/data/food_seeds.json` 提供；如需重新提取，参考 `backend/knowledge/extract_pdf.py`（扫描版 PDF → 视觉 OCR）与 `build_food_db.py`（逐页结果 → 结构化库 + 种子句）。知识库种子变化后重启服务会自动重建向量库
 
 ## 📄 License
 

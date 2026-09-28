@@ -1,7 +1,10 @@
 <template>
   <div class="chat-window">
     <div class="header">
-      <span>AI 智能营养师 - 小营</span>
+      <button class="menu-btn" title="会话列表" @click="uiStore.toggleSidebar()">
+        <span class="menu-icon">☰</span>
+      </button>
+      <span class="header-title">AI 智能营养师 - 小营</span>
       <el-button size="small" class="new-btn" @click="newConversation">新对话</el-button>
     </div>
     <div class="messages" ref="msgContainer">
@@ -16,6 +19,13 @@
         @keyup.enter="handleSend"
         :disabled="loading"
       />
+      <el-button
+        v-if="speechSupported"
+        class="voice-btn"
+        :class="{ listening: recognizing }"
+        :title="recognizing ? '停止语音' : '语音输入'"
+        @click="toggleVoice"
+      >🎤</el-button>
       <el-button type="primary" @click="handleSend" :disabled="loading || !input.trim()">
         发送
       </el-button>
@@ -25,11 +35,13 @@
 
 <script setup lang="ts">
 import { ref, nextTick, watch } from 'vue'
+import { ElMessage } from 'element-plus'
 import ChatMessage from './ChatMessage.vue'
 import ImageUpload from './ImageUpload.vue'
 import { sendMessage, type ChatMessage as Msg } from '../api/chat'
 import { getMessages } from '../api/conversations'
 import { conversationStore } from '../stores/conversations'
+import { uiStore } from '../stores/ui'
 
 const messages = ref<(Msg & { imageUrl?: string })[]>([])
 const input = ref('')
@@ -56,6 +68,45 @@ watch(
   },
   { immediate: true },
 )
+
+// ---- 语音输入（Web Speech API） ----
+const recognizing = ref(false)
+let recognition: any = null
+
+const speechSupported = !!(
+  (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+)
+
+function toggleVoice() {
+  const SR = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition
+  if (!SR) {
+    ElMessage.warning('当前浏览器不支持语音输入（请使用 Chrome/Edge 且需 HTTPS 或 localhost）')
+    return
+  }
+  if (recognizing.value) {
+    recognition?.stop()
+    return
+  }
+  const rec = new SR()
+  rec.lang = 'zh-CN'
+  rec.interimResults = true
+  rec.continuous = false
+  rec.onresult = (e: any) => {
+    let transcript = ''
+    for (let i = 0; i < e.results.length; i++) transcript += e.results[i][0].transcript
+    input.value = transcript
+  }
+  rec.onend = () => {
+    recognizing.value = false
+  }
+  rec.onerror = () => {
+    recognizing.value = false
+    ElMessage.warning('语音识别出错或未授权麦克风')
+  }
+  recognition = rec
+  recognizing.value = true
+  rec.start()
+}
 
 function onImage(b64: string) {
   imageBase64.value = b64
@@ -129,18 +180,35 @@ function scrollToBottom() {
   min-width: 0;
 }
 .header {
-  padding: 16px;
-  text-align: center;
+  padding: 12px 16px;
   font-size: 18px;
   font-weight: bold;
   background: #67c23a;
   color: #fff;
   display: flex;
   align-items: center;
-  justify-content: center;
+  gap: 10px;
+}
+.header-title {
+  flex: 1;
+  text-align: center;
+  font-size: 16px;
+}
+.menu-btn {
+  display: none;
+  background: none;
+  border: none;
+  color: #fff;
+  font-size: 18px;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 6px;
+}
+.menu-btn:hover {
+  background: rgba(255, 255, 255, 0.2);
 }
 .new-btn {
-  margin-left: 12px;
+  margin-left: auto;
 }
 .messages {
   flex: 1;
@@ -150,14 +218,43 @@ function scrollToBottom() {
 .input-area {
   display: flex;
   gap: 8px;
-  padding: 12px 20px;
+  padding: 12px 16px;
   border-top: 1px solid #eee;
   background: #fff;
   align-items: center;
+}
+.voice-btn {
+  flex-shrink: 0;
+}
+.voice-btn.listening {
+  color: #fff;
+  background: #f56c6c;
+  border-color: #f56c6c;
+  animation: pulse 1s infinite;
+}
+@keyframes pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(245, 108, 108, 0.5); }
+  50% { box-shadow: 0 0 0 6px rgba(245, 108, 108, 0); }
 }
 .typing {
   color: #999;
   font-size: 13px;
   padding: 8px 0;
+}
+
+/* 移动端 */
+@media (max-width: 768px) {
+  .menu-btn {
+    display: inline-flex;
+  }
+  .header-title {
+    font-size: 15px;
+  }
+  .messages {
+    padding: 12px;
+  }
+  .input-area {
+    padding: 10px 8px;
+  }
 }
 </style>

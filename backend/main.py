@@ -59,6 +59,12 @@ async def init_db() -> None:
         await conn.execute(
             text("ALTER TABLE users ADD COLUMN IF NOT EXISTS is_admin BOOLEAN NOT NULL DEFAULT FALSE")
         )
+        # 会话置顶标记（增量迁移，幂等）
+        await conn.execute(
+            text(
+                "ALTER TABLE conversations ADD COLUMN IF NOT EXISTS pinned BOOLEAN NOT NULL DEFAULT FALSE"
+            )
+        )
         # 手机号唯一（允许多个 NULL，仅约束非空值），幂等
         await conn.execute(
             text(
@@ -92,6 +98,18 @@ async def lifespan(app: FastAPI):
             "JWT_SECRET 未设置，正在使用开发默认值——生产环境请在 .env 中配置随机长字符串"
         )
     await init_db()
+    # 预热知识库：首次启动时会把（含食物成分数据）的种子全量嵌入到 ChromaDB，
+    # 避免首个用户的首条消息因为构建向量库而卡住数分钟。
+    try:
+        from knowledge.vector_store import KnowledgeBase
+
+        KnowledgeBase.get_instance()
+    except Exception as e:  # noqa: BLE001
+        import logging
+
+        logging.getLogger("uvicorn.error").warning(
+            f"知识库预热失败（将在首次检索时重试）：{e}"
+        )
     # AsyncSqliteSaver 需在运行中的事件循环内创建
     async with AsyncSqliteSaver.from_conn_string(CHECKPOINT_DB) as checkpointer:
         app.state.agent = create_agent(checkpointer)

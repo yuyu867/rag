@@ -4,6 +4,7 @@ export interface Conversation {
   id: number
   thread_id: string
   title: string
+  pinned: boolean
   updated_at: string
 }
 
@@ -39,6 +40,16 @@ export async function createConversation(title?: string): Promise<Conversation> 
 
 export async function deleteConversation(id: number): Promise<void> {
   await request(`/api/conversations/${id}`, { method: 'DELETE' })
+}
+
+export async function updateConversation(
+  id: number,
+  patch: { title?: string; pinned?: boolean },
+): Promise<Conversation> {
+  return request<Conversation>(`/api/conversations/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(patch),
+  })
 }
 
 export async function getMessages(conversationId: number): Promise<HistoryMessage[]> {
